@@ -32,4 +32,4 @@ Serve 200s from /ok and 500s from /error:
   mhs /ok 200 /error 500
 Serve 200s from /status and the "/tmp" directory from /files:
   mhs /status 200 /files /tmp
-``
+```
