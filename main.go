@@ -61,9 +61,15 @@ func FileTemplateParser(mux *http.ServeMux, path, template string) bool {
 	return true
 }
 
-func logHandler(handler http.Handler) http.HandlerFunc {
+func wrapperHandler(handler http.Handler, cors bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writer := &PassthroughWriter{ResponseWriter: w}
+		if cors {
+			writer.Header().Set("Access-Control-Allow-Origin", "*")
+			writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			writer.Header().Set("Cross-Origin-Embedder-Policy", "require-corp")
+			writer.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		}
 		handler.ServeHTTP(writer, r)
 		log.Printf("- %s - %s %s - %d\n", r.RemoteAddr, r.Method, r.URL, writer.Status)
 	}
@@ -92,14 +98,22 @@ func usageFunc() {
 
 func main() {
 	port := flag.Int("p", 8080, "port to serve on")
+	cors := flag.Bool("c", false, "set cors headers to allow all origins")
+	certFile := flag.String("s", "", "Use certificate file to serve over HTTPS")
+	keyFile := flag.String("k", "", "Use key file file to serve over HTTPS")
 	flag.Usage = usageFunc
 	flag.Parse()
 
 	log.Default().SetFlags(log.Ldate | log.Lmicroseconds)
 	args := flag.Args()
 	if len(args) == 0 {
-		fmt.Printf("Serving current directory via HTTP on port %d\n", *port)
-		http.ListenAndServe(fmt.Sprintf(":%d", *port), logHandler(http.FileServer(http.Dir("."))))
+		if *certFile != "" || *keyFile != "" {
+			fmt.Printf("Serving current directory via HTTPS on port %d\n", *port)
+			log.Fatal(http.ListenAndServeTLS(fmt.Sprintf(":%d", *port), *certFile, *keyFile, wrapperHandler(http.FileServer(http.Dir(".")), *cors)))
+		} else {
+			fmt.Printf("Serving current directory via HTTP on port %d\n", *port)
+			http.ListenAndServe(fmt.Sprintf(":%d", *port), wrapperHandler(http.FileServer(http.Dir(".")), *cors))
+		}
 		return
 	}
 
@@ -126,5 +140,9 @@ func main() {
 	}
 
 	log.Printf("Serving HTTP on port %d\n", *port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), logHandler(mux)))
+	if *certFile != "" && *keyFile != "" {
+		log.Fatal(http.ListenAndServeTLS(fmt.Sprintf(":%d", *port), *certFile, *keyFile, wrapperHandler(mux, *cors)))
+	} else {
+		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), wrapperHandler(mux, *cors)))
+	}
 }
